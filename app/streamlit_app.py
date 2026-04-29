@@ -67,8 +67,7 @@ st.markdown(
         max-width: 1320px;
     }
 
-    /* Safe text color: avoid styling every Streamlit internal div */
-    h1, h2, h3, h4, h5, h6, p, label, span {
+    h1, h2, h3, h4, h5, h6, p, label, div, span {
         color: var(--text);
     }
 
@@ -398,84 +397,6 @@ st.markdown(
         border-color: rgba(114, 137, 218, 0.12);
     }
 
-
-
-    /* ============================================================ */
-    /* STREAMLIT SELECTBOX / DROPDOWN FIX FOR DARK THEME             */
-    /* ============================================================ */
-    div[data-baseweb="select"] > div {
-        background-color: #071121 !important;
-        border: 1px solid rgba(114, 137, 218, 0.35) !important;
-        border-radius: 12px !important;
-        color: #ffffff !important;
-    }
-
-    div[data-baseweb="select"] input {
-        color: #ffffff !important;
-    }
-
-    div[data-baseweb="select"] span,
-    div[data-baseweb="select"] div {
-        color: #ffffff !important;
-    }
-
-    div[data-baseweb="select"] svg {
-        fill: #ffffff !important;
-        color: #ffffff !important;
-    }
-
-    div[data-baseweb="popover"] {
-        background-color: #0b1324 !important;
-        color: #ffffff !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(114, 137, 218, 0.35) !important;
-        box-shadow: 0 16px 40px rgba(0,0,0,0.35) !important;
-        overflow: hidden !important;
-    }
-
-    div[data-baseweb="menu"] {
-        background-color: #0b1324 !important;
-        color: #ffffff !important;
-        border-radius: 12px !important;
-    }
-
-    div[data-baseweb="menu"] ul {
-        background-color: #0b1324 !important;
-    }
-
-    div[data-baseweb="menu"] li,
-    div[role="option"] {
-        background-color: #0b1324 !important;
-        color: #ffffff !important;
-        font-weight: 600 !important;
-    }
-
-    div[data-baseweb="menu"] li:hover,
-    div[role="option"]:hover {
-        background-color: rgba(124,77,255,0.35) !important;
-        color: #ffffff !important;
-    }
-
-    div[role="option"][aria-selected="true"] {
-        background-color: rgba(45,212,191,0.25) !important;
-        color: #ffffff !important;
-    }
-
-    div[data-baseweb="select"] div[aria-disabled="true"],
-    div[data-baseweb="menu"] div[aria-disabled="true"] {
-        color: #cbd5e1 !important;
-        opacity: 1 !important;
-    }
-
-    div[role="radiogroup"] label,
-    div[role="radiogroup"] span {
-        color: #eef2ff !important;
-    }
-
-    div[data-testid="stAlert"] * {
-        color: inherit !important;
-    }
-
     @media (max-width: 1100px) {
         .hero-title {
             font-size: 2.8rem;
@@ -508,14 +429,14 @@ st.markdown(
 # ============================================================
 CLUSTER_INFO = {
     3: {
-        "name": "High-Risk / Active TB-Like Profile",
+        "name": "High-Risk / Active TB Profile",
         "stage": "Earliest / Most severe risk stage",
         "risk": "High Risk",
         "summary": "Strong cough, chest pain, sputum and other symptomatic TB signals.",
         "key_features": ["cough", "chest_pain", "sputum", "fever", "weight_loss"],
     },
     1: {
-        "name": "Symptomatic TB-Like Profile",
+        "name": "Symptomatic TB Profile",
         "stage": "Early risk stage",
         "risk": "High Risk",
         "summary": "Moderate cough and chest pain with clinically relevant symptom burden.",
@@ -555,34 +476,23 @@ ALL_COLS = CONTINUOUS_COLS + BINARY_COLS + CATEGORICAL_COLS
 # ============================================================
 # USER-FACING DEPLOYMENT FEATURES
 # ============================================================
-# These are the 15 variables shown in the hospital mapping grid.
-# The full trained schema is still preserved internally through ALL_COLS
-# so the saved preprocessor and TTVAE model remain compatible.
 DISPLAY_COLS = [
-    # Demographic / baseline
     "age_census",
     "occupation",
-
-    # Core TB symptoms
     "chest_pain",
     "cough",
     "sputum",
     "fever",
     "weight_loss",
     "night_sweats",
-
-    # Symptom duration / progression
     "cough_d",
     "sputum_d",
     "fever_d",
     "wloss_d",
-
-    # Radiology and laboratory indicators
     "xrayres",
     "smear_pos",
     "genexpert",
 ]
-
 
 
 # ============================================================
@@ -650,26 +560,22 @@ def reliability_label(flag: bool) -> str:
 
 def build_patient_results(latents, pseudotime_norm, clusters, rec_error, ood_flags):
     """
-    Build a user-facing result table.
+    Build a clean end-user result table.
 
-    Important safety rule:
-    Records with reconstruction error above the training threshold are treated as
-    out-of-distribution (OOD). For those records, the app abstains from assigning
-    a risk profile or progression position and displays dashes instead.
+    OOD safety:
+    If a record exceeds the saved reconstruction-error threshold, the system
+    does not assign a clinical profile, risk group, or risk position.
     """
     rows = []
 
     for i in range(len(clusters)):
-        is_ood = bool(ood_flags[i])
-
-        if is_ood:
+        if bool(ood_flags[i]):
             rows.append(
                 {
-                    "Assessment Status": "Not assessed - outside training distribution",
                     "Clinical Profile": "—",
                     "Risk Group": "—",
                     "Risk Position": "—",
-                    "Reliability": "⚠️ OOD - abstained",
+                    "Reliability": "⚠️ OOD - not assessed",
                 }
             )
             continue
@@ -679,7 +585,6 @@ def build_patient_results(latents, pseudotime_norm, clusters, rec_error, ood_fla
 
         rows.append(
             {
-                "Assessment Status": "Assessed",
                 "Clinical Profile": info.get("name", "Clinical profile"),
                 "Risk Group": risk_bucket_from_cluster(cid),
                 "Risk Position": progression_position_label(float(pseudotime_norm[i])),
@@ -695,7 +600,7 @@ def plot_profile_distribution(results_df):
     fig.patch.set_facecolor("#0b1324")
     ax.set_facecolor("#0b1324")
 
-    assessed = results_df[results_df["Assessment Status"] == "Assessed"]
+    assessed = results_df[results_df["Reliability"].str.startswith("✅", na=False)]
     if assessed.empty:
         ax.text(0.5, 0.5, "No assessed records", ha="center", va="center", color="white")
         ax.set_axis_off()
@@ -716,7 +621,7 @@ def plot_risk_group_distribution(results_df):
     fig.patch.set_facecolor("#0b1324")
     ax.set_facecolor("#0b1324")
 
-    assessed = results_df[results_df["Assessment Status"] == "Assessed"]
+    assessed = results_df[results_df["Reliability"].str.startswith("✅", na=False)]
     if assessed.empty:
         ax.text(0.5, 0.5, "No assessed records", ha="center", va="center", color="white")
         ax.set_axis_off()
@@ -735,9 +640,9 @@ def plot_risk_group_distribution(results_df):
 
 
 def build_profile_summary(results_df):
-    assessed = results_df[results_df["Assessment Status"] == "Assessed"]
+    assessed = results_df[results_df["Reliability"].str.startswith("✅", na=False)]
     if assessed.empty:
-        return pd.DataFrame(columns=["Clinical Profile", "Risk Group", "Patients"] )
+        return pd.DataFrame(columns=["Clinical Profile", "Risk Group", "Patients"])
 
     summary = (
         assessed.groupby(["Clinical Profile", "Risk Group"], as_index=False)
@@ -745,79 +650,6 @@ def build_profile_summary(results_df):
         .sort_values("Patients", ascending=False)
     )
     return summary
-
-def plot_latent_by_cluster(latents, clusters):
-    fig, ax = plt.subplots(figsize=(5.5, 4.5))
-    fig.patch.set_facecolor("#0b1324")
-    ax.set_facecolor("#0b1324")
-
-    for cid in sorted(np.unique(clusters)):
-        mask = clusters == cid
-        label = CLUSTER_INFO.get(int(cid), {}).get("name", f"Cluster {cid}")
-        ax.scatter(
-            latents[mask, 0],
-            latents[mask, 1],
-            label=label,
-            alpha=0.65,
-            s=18,
-        )
-
-    ax.set_xlabel("z1", color="white")
-    ax.set_ylabel("z2", color="white")
-    ax.set_title("Latent Space Colored by Cluster", color="white")
-    ax.tick_params(colors="white")
-    for spine in ax.spines.values():
-        spine.set_color("#2a3550")
-    leg = ax.legend(fontsize=7)
-    if leg:
-        for text in leg.get_texts():
-            text.set_color("white")
-        leg.get_frame().set_facecolor("#0b1324")
-        leg.get_frame().set_edgecolor("#2a3550")
-    return fig
-
-
-def plot_latent_by_pseudotime(latents, pseudotime_norm):
-    fig, ax = plt.subplots(figsize=(5.5, 4.5))
-    fig.patch.set_facecolor("#0b1324")
-    ax.set_facecolor("#0b1324")
-
-    sc = ax.scatter(
-        latents[:, 0],
-        latents[:, 1],
-        c=pseudotime_norm,
-        cmap="viridis",
-        alpha=0.7,
-        s=18,
-    )
-    ax.set_xlabel("z1", color="white")
-    ax.set_ylabel("z2", color="white")
-    ax.set_title("Latent Space Colored by Pseudotime", color="white")
-    ax.tick_params(colors="white")
-    for spine in ax.spines.values():
-        spine.set_color("#2a3550")
-    cbar = plt.colorbar(sc, ax=ax, label="Normalized Pseudotime")
-    cbar.ax.yaxis.label.set_color("white")
-    cbar.ax.tick_params(colors="white")
-    cbar.outline.set_edgecolor("#2a3550")
-    return fig
-
-
-
-def build_cluster_feature_profiles(df_clean, clusters):
-    prof = df_clean.copy()
-    prof["Cluster"] = clusters
-    profile_means = prof.groupby("Cluster").mean(numeric_only=True).reset_index()
-    profile_means["Phenotype"] = profile_means["Cluster"].map(
-        lambda x: CLUSTER_INFO.get(int(x), {}).get("name", f"Cluster {x}")
-    )
-
-    ordered_cols = ["Cluster", "Phenotype"] + [
-        c for c in profile_means.columns if c not in ["Cluster", "Phenotype"]
-    ]
-    profile_means = profile_means[ordered_cols]
-    return profile_means
-
 
 
 # ============================================================
@@ -833,7 +665,7 @@ def normalize_column_name(col_name: str) -> str:
 
 def guess_column_mapping(uploaded_columns, expected_columns):
     """
-    Automatically match hospital CSV columns to the trained model schema
+    Automatically match hospital CSV columns to the selected deployment variables
     where the names are identical or very similar after normalisation.
     """
     normalised_uploaded = {
@@ -850,9 +682,9 @@ def guess_column_mapping(uploaded_columns, expected_columns):
 
 def apply_hospital_column_mapping(df_raw: pd.DataFrame, mapping: dict):
     """
-    Convert hospital-specific CSV column names into the trained model column names.
-    Unmapped trained variables are created as missing values so that the saved
-    preprocessing pipeline can handle them consistently.
+    Convert hospital-specific CSV column names into the model column names.
+    Variables that are not displayed are created as missing values so that the
+    saved preprocessing pipeline can handle them consistently.
     """
     df_mapped = pd.DataFrame(index=df_raw.index)
     mapped_expected_cols = []
@@ -871,17 +703,15 @@ def apply_hospital_column_mapping(df_raw: pd.DataFrame, mapping: dict):
 
 def show_mapping_quality(mapped_expected_cols, missing_expected_cols):
     """
-    Display simple validation feedback before running the model.
-    Only the selected 15 deployment features are shown to users, while the
-    remaining trained variables are created internally as missing values.
+    Display simple validation feedback for the selected 15 variables only.
     """
     selected_mapped = [col for col in DISPLAY_COLS if col in mapped_expected_cols]
     selected_missing = [col for col in DISPLAY_COLS if col not in mapped_expected_cols]
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Displayed Features", len(DISPLAY_COLS))
-    c2.metric("Mapped Displayed Features", len(selected_mapped))
-    c3.metric("Unmapped Displayed Features", len(selected_missing))
+    c2.metric("Mapped Features", len(selected_mapped))
+    c3.metric("Unmapped Features", len(selected_missing))
 
     if len(selected_mapped) == 0:
         st.error(
@@ -890,20 +720,12 @@ def show_mapping_quality(mapped_expected_cols, missing_expected_cols):
         )
     elif selected_missing:
         st.warning(
-            "Some displayed variables were not mapped. They will be passed as missing values "
-            "and handled by the saved preprocessing pipeline."
+            "Some displayed variables were not mapped. They will be treated as missing during preprocessing."
         )
         with st.expander("View unmapped displayed variables", expanded=False):
             st.write(selected_missing)
     else:
         st.success("All 15 displayed clinical variables have been mapped successfully.")
-
-    with st.expander("Technical note: full trained schema preserved internally", expanded=False):
-        st.write(
-            f"The app displays {len(DISPLAY_COLS)} selected clinical variables, but internally preserves "
-            f"the full trained schema of {len(ALL_COLS)} variables required by the saved preprocessor "
-            "and TTVAE model. Non-displayed variables are created as missing values and handled by preprocessing."
-        )
 
 
 
@@ -917,7 +739,7 @@ with left_col:
     st.markdown("# TB Risk Profiling System")
     st.markdown(
         """
-        latent tuberculosis risk sequencing and clinical profile discovery.
+        latent tuberculosis risk sequencing and profile discovery.
         """
     )
 
@@ -966,7 +788,7 @@ st.markdown(
             <div>
                 <div class="section-title">Upload Patient Cohort</div>
                 <div class="section-subtitle">
-                    Upload a hospital CSV file, map its columns to the trained model schema,
+                    Upload a hospital CSV file, map the selected clinical variables,
                     and run TB risk profiling.
                 </div>
             </div>
@@ -1018,12 +840,6 @@ if uploaded_file is not None:
             st.dataframe(df_raw.head(20), use_container_width=True)
 
         st.markdown("### Column Setup")
-        st.info(
-            "This system was trained on a 2014–2015 cross-sectional TB dataset. "
-            "To support safe use, each uploaded record is checked against the training distribution. "
-            "Records above the 95th percentile reconstruction-error threshold are marked as out-of-distribution "
-            "and are not assigned a risk group, risk position, or clinical profile."
-        )
 
         auto_mapping = guess_column_mapping(df_raw.columns, DISPLAY_COLS)
         available_options = ["-- Not available --"] + list(df_raw.columns)
@@ -1039,14 +855,9 @@ if uploaded_file is not None:
 
         if schema_mode == "CSV already uses the correct model column names":
             mapping = auto_mapping
-            st.caption(
-                "The app will automatically use matching column names from the uploaded file. "
-                "Missing model variables will be handled by the saved preprocessing pipeline."
-            )
         else:
             st.caption(
-                "Map each displayed clinical variable to the matching column in the hospital CSV. "
-                "The grid layout keeps the page compact and easier to present."
+                "Map each displayed clinical variable to the matching column in the hospital CSV."
             )
 
             mapping = {}
@@ -1096,13 +907,13 @@ if uploaded_file is not None:
         )
         show_mapping_quality(mapped_expected_cols, missing_expected_cols)
 
-        with st.expander("Preview internally mapped model-ready columns", expanded=False):
-            st.dataframe(df_mapped_preview.head(20), use_container_width=True)
+        with st.expander("Preview mapped input", expanded=False):
+            st.dataframe(df_mapped_preview[DISPLAY_COLS].head(20), use_container_width=True)
 
         analyze = st.button(
             "Analyze Cohort",
             type="primary",
-            disabled=(len(mapped_expected_cols) == 0),
+            disabled=(len([col for col in DISPLAY_COLS if col in mapped_expected_cols]) == 0),
         )
 
     except Exception as e:
@@ -1135,25 +946,24 @@ if uploaded_file is not None and analyze:
             ood_flags=ood_flags,
         )
 
-        st.success("Cohort processed successfully. OOD records were safely abstained from risk assignment.")
+        st.success("Cohort processed successfully.")
 
     except Exception as e:
         st.error(
             "The uploaded data could not be processed after column mapping. "
-            "Please confirm that mapped columns contain values compatible with the trained schema."
+            "Please confirm that mapped columns contain values compatible with the selected schema."
         )
         st.exception(e)
         st.stop()
 
 
-# ============================================================
 # RESULTS
 # ============================================================
 if results is not None:
     st.markdown("### Cohort Summary")
 
-    assessed_count = int((results["Assessment Status"] == "Assessed").sum())
-    ood_count = int((results["Assessment Status"] != "Assessed").sum())
+    assessed_count = int(results["Reliability"].str.startswith("✅", na=False).sum())
+    ood_count = int(results["Reliability"].str.startswith("⚠️", na=False).sum())
 
     m1, m2, m3, m4 = st.columns(4, gap="medium")
     with m1:
@@ -1170,7 +980,10 @@ if results is not None:
         st.markdown("</div>", unsafe_allow_html=True)
     with m4:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        assessed_profiles = results.loc[results["Assessment Status"] == "Assessed", "Clinical Profile"].nunique()
+        assessed_profiles = results.loc[
+            results["Reliability"].str.startswith("✅", na=False),
+            "Clinical Profile",
+        ].nunique()
         st.metric("Profiles Detected", int(assessed_profiles))
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1184,12 +997,12 @@ if results is not None:
     st.dataframe(results, use_container_width=True)
 
     st.markdown("### Distribution Views")
-    col3, col4 = st.columns(2, gap="large")
+    col1, col2 = st.columns(2, gap="large")
 
-    with col3:
+    with col1:
         st.pyplot(plot_profile_distribution(results), use_container_width=True)
 
-    with col4:
+    with col2:
         st.pyplot(plot_risk_group_distribution(results), use_container_width=True)
 
     st.markdown("### Summary Interpretation")
@@ -1204,12 +1017,12 @@ if results is not None:
             st.markdown(
                 f"**{info['name']}**  \n"
                 f"- Risk group: {info['risk']}  \n"
-                f"- Interpretation: {info['summary']}  \n"
-                f"- Main indicators: {', '.join(info['key_features'])}"
+                f"- Interpretation: {info['summary']}"
             )
 
     with st.expander("Uploaded Data Preview", expanded=False):
-        st.dataframe(df_clean.head(200), use_container_width=True)
+        preview_cols = [col for col in DISPLAY_COLS if col in df_clean.columns]
+        st.dataframe(df_clean[preview_cols].head(200), use_container_width=True)
 
     st.download_button(
         "Download Patient-Level Results",
@@ -1220,9 +1033,6 @@ if results is not None:
 
 
 
-
-
-# ============================================================
 # SYNTHETIC DECODER (FIXED ✅)
 # ============================================================
 def decode_synthetic_from_transformed(syn_df: pd.DataFrame):
