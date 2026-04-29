@@ -508,35 +508,35 @@ st.markdown(
 # ============================================================
 CLUSTER_INFO = {
     3: {
-        "name": "High-Risk / Active TB Phenotype",
+        "name": "High-Risk / Active TB-Like Profile",
         "stage": "Earliest / Most severe risk stage",
         "risk": "High Risk",
         "summary": "Strong cough, chest pain, sputum and other symptomatic TB signals.",
         "key_features": ["cough", "chest_pain", "sputum", "fever", "weight_loss"],
     },
     1: {
-        "name": "Symptomatic TB Phenotype",
+        "name": "Symptomatic TB-Like Profile",
         "stage": "Early risk stage",
         "risk": "High Risk",
         "summary": "Moderate cough and chest pain with clinically relevant symptom burden.",
         "key_features": ["cough", "chest_pain", "fever", "weight_loss"],
     },
     4: {
-        "name": "Transitional TB Risk Phenotype",
+        "name": "Transitional TB Risk Profile",
         "stage": "Intermediate / transition stage",
         "risk": "Moderate Risk",
         "summary": "Milder but emerging symptom profile, suggesting transition along risk progression.",
         "key_features": ["chest_pain", "cough", "weight_loss"],
     },
     2: {
-        "name": "Low-Symptom Phenotype",
+        "name": "Low-Symptom Profile",
         "stage": "Later / relatively stable stage",
         "risk": "Low Risk",
         "summary": "Very low symptom burden and weak clinical activity.",
         "key_features": ["minimal symptoms", "stable radiology"],
     },
     0: {
-        "name": "Very Low-Risk / Stable Phenotype",
+        "name": "Very Low-Risk / Stable Profile",
         "stage": "Latest / most stable stage",
         "risk": "Very Low Risk",
         "summary": "Minimal symptoms and stable overall profile.",
@@ -649,26 +649,102 @@ def reliability_label(flag: bool) -> str:
 
 
 def build_patient_results(latents, pseudotime_norm, clusters, rec_error, ood_flags):
+    """
+    Build a user-facing result table.
+
+    Important safety rule:
+    Records with reconstruction error above the training threshold are treated as
+    out-of-distribution (OOD). For those records, the app abstains from assigning
+    a risk profile or progression position and displays dashes instead.
+    """
     rows = []
 
     for i in range(len(clusters)):
+        is_ood = bool(ood_flags[i])
+
+        if is_ood:
+            rows.append(
+                {
+                    "Assessment Status": "Not assessed - outside training distribution",
+                    "Clinical Profile": "—",
+                    "Risk Group": "—",
+                    "Risk Position": "—",
+                    "Reliability": "⚠️ OOD - abstained",
+                }
+            )
+            continue
+
         cid = int(clusters[i])
         info = CLUSTER_INFO.get(cid, {})
 
         rows.append(
             {
-                "Cluster": cid,
-                "Phenotype": info.get("name", f"Cluster {cid}"),
-                "Risk Category": risk_bucket_from_cluster(cid),
-                "Progression Position": progression_position_label(float(pseudotime_norm[i])),
-                "Pseudotime (0-1)": round(float(pseudotime_norm[i]), 3),
-                "Reconstruction Error": round(float(rec_error[i]), 6),
-                "Reliability": reliability_label(bool(ood_flags[i])),
+                "Assessment Status": "Assessed",
+                "Clinical Profile": info.get("name", "Clinical profile"),
+                "Risk Group": risk_bucket_from_cluster(cid),
+                "Risk Position": progression_position_label(float(pseudotime_norm[i])),
+                "Reliability": "✅ Within training distribution",
             }
         )
 
     return pd.DataFrame(rows)
 
+
+def plot_profile_distribution(results_df):
+    fig, ax = plt.subplots(figsize=(5, 3.5))
+    fig.patch.set_facecolor("#0b1324")
+    ax.set_facecolor("#0b1324")
+
+    assessed = results_df[results_df["Assessment Status"] == "Assessed"]
+    if assessed.empty:
+        ax.text(0.5, 0.5, "No assessed records", ha="center", va="center", color="white")
+        ax.set_axis_off()
+        return fig
+
+    ordered = assessed["Clinical Profile"].value_counts()
+    ordered.plot(kind="bar", ax=ax)
+    ax.set_ylabel("Number of Patients", color="white")
+    ax.set_title("Clinical Profile Distribution", color="white")
+    ax.tick_params(colors="white")
+    for spine in ax.spines.values():
+        spine.set_color("#2a3550")
+    return fig
+
+
+def plot_risk_group_distribution(results_df):
+    fig, ax = plt.subplots(figsize=(5, 3.5))
+    fig.patch.set_facecolor("#0b1324")
+    ax.set_facecolor("#0b1324")
+
+    assessed = results_df[results_df["Assessment Status"] == "Assessed"]
+    if assessed.empty:
+        ax.text(0.5, 0.5, "No assessed records", ha="center", va="center", color="white")
+        ax.set_axis_off()
+        return fig
+
+    order = ["High Risk", "Moderate Risk", "Low Risk", "Very Low Risk"]
+    counts = assessed["Risk Group"].value_counts().reindex(order, fill_value=0)
+    counts = counts[counts > 0]
+    counts.plot(kind="bar", ax=ax)
+    ax.set_ylabel("Number of Patients", color="white")
+    ax.set_title("Risk Group Distribution", color="white")
+    ax.tick_params(colors="white")
+    for spine in ax.spines.values():
+        spine.set_color("#2a3550")
+    return fig
+
+
+def build_profile_summary(results_df):
+    assessed = results_df[results_df["Assessment Status"] == "Assessed"]
+    if assessed.empty:
+        return pd.DataFrame(columns=["Clinical Profile", "Risk Group", "Patients"] )
+
+    summary = (
+        assessed.groupby(["Clinical Profile", "Risk Group"], as_index=False)
+        .agg(Patients=("Clinical Profile", "count"))
+        .sort_values("Patients", ascending=False)
+    )
+    return summary
 
 def plot_latent_by_cluster(latents, clusters):
     fig, ax = plt.subplots(figsize=(5.5, 4.5))
@@ -726,55 +802,6 @@ def plot_latent_by_pseudotime(latents, pseudotime_norm):
     cbar.outline.set_edgecolor("#2a3550")
     return fig
 
-
-def plot_cluster_distribution(results_df):
-    fig, ax = plt.subplots(figsize=(5, 3.5))
-    fig.patch.set_facecolor("#0b1324")
-    ax.set_facecolor("#0b1324")
-
-    ordered = (
-        results_df["Phenotype"]
-        .value_counts()
-        .reindex(results_df["Phenotype"].unique(), fill_value=0)
-    )
-    ordered.plot(kind="bar", ax=ax)
-    ax.set_ylabel("Count", color="white")
-    ax.set_title("Phenotype Distribution", color="white")
-    ax.tick_params(colors="white")
-    for spine in ax.spines.values():
-        spine.set_color("#2a3550")
-    return fig
-
-
-def plot_pseudotime_distribution(results_df):
-    fig, ax = plt.subplots(figsize=(5, 3.5))
-    fig.patch.set_facecolor("#0b1324")
-    ax.set_facecolor("#0b1324")
-
-    ax.hist(results_df["Pseudotime (0-1)"], bins=20)
-    ax.set_xlabel("Normalized Pseudotime", color="white")
-    ax.set_ylabel("Count", color="white")
-    ax.set_title("Pseudotime Distribution", color="white")
-    ax.tick_params(colors="white")
-    for spine in ax.spines.values():
-        spine.set_color("#2a3550")
-    return fig
-
-
-def build_cluster_summary(results_df):
-    summary = (
-        results_df.groupby(["Cluster", "Phenotype", "Risk Category"], as_index=False)
-        .agg(
-            Count=("Pseudotime (0-1)", "count"),
-            Mean_Pseudotime=("Pseudotime (0-1)", "mean"),
-            Mean_Reconstruction_Error=("Reconstruction Error", "mean"),
-        )
-        .sort_values("Cluster", key=lambda s: s.map({c: i for i, c in enumerate(CLUSTER_ORDER)}))
-    )
-
-    summary["Mean_Pseudotime"] = summary["Mean_Pseudotime"].round(3)
-    summary["Mean_Reconstruction_Error"] = summary["Mean_Reconstruction_Error"].round(6)
-    return summary
 
 
 def build_cluster_feature_profiles(df_clean, clusters):
@@ -890,7 +917,7 @@ with left_col:
     st.markdown("# TB Risk Profiling System")
     st.markdown(
         """
-        latent tuberculosis risk sequencing and phenotype discovery.
+        latent tuberculosis risk sequencing and clinical profile discovery.
         """
     )
 
@@ -913,7 +940,7 @@ with left_col:
     st.markdown(
         """
         **📊 Actionable Insights**  
-        Identify high-risk patterns and patient phenotypes
+        Identify high-risk patterns and patient risk profiles
         """
     )
 
@@ -940,7 +967,7 @@ st.markdown(
                 <div class="section-title">Upload Patient Cohort</div>
                 <div class="section-subtitle">
                     Upload a hospital CSV file, map its columns to the trained model schema,
-                    and run TB phenotype/risk profiling.
+                    and run TB risk profiling.
                 </div>
             </div>
         </div>
@@ -992,9 +1019,10 @@ if uploaded_file is not None:
 
         st.markdown("### Column Setup")
         st.info(
-            "Choose whether the uploaded CSV already follows the trained model schema, "
-            "or map hospital-specific column names to the model variables. The model is not retrained; "
-            "the app only renames columns internally before analysis."
+            "This system was trained on a 2014–2015 cross-sectional TB dataset. "
+            "To support safe use, each uploaded record is checked against the training distribution. "
+            "Records above the 95th percentile reconstruction-error threshold are marked as out-of-distribution "
+            "and are not assigned a risk group, risk position, or clinical profile."
         )
 
         auto_mapping = guess_column_mapping(df_raw.columns, DISPLAY_COLS)
@@ -1017,7 +1045,7 @@ if uploaded_file is not None:
             )
         else:
             st.caption(
-                "Map each trained model variable to the matching column in the hospital CSV. "
+                "Map each displayed clinical variable to the matching column in the hospital CSV. "
                 "The grid layout keeps the page compact and easier to present."
             )
 
@@ -1107,7 +1135,7 @@ if uploaded_file is not None and analyze:
             ood_flags=ood_flags,
         )
 
-        st.success("Cohort processed successfully.")
+        st.success("Cohort processed successfully. OOD records were safely abstained from risk assignment.")
 
     except Exception as e:
         st.error(
@@ -1124,71 +1152,61 @@ if uploaded_file is not None and analyze:
 if results is not None:
     st.markdown("### Cohort Summary")
 
+    assessed_count = int((results["Assessment Status"] == "Assessed").sum())
+    ood_count = int((results["Assessment Status"] != "Assessed").sum())
+
     m1, m2, m3, m4 = st.columns(4, gap="medium")
     with m1:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("Total Patients", f"{len(results):,}")
+        st.metric("Total Records", f"{len(results):,}")
         st.markdown("</div>", unsafe_allow_html=True)
     with m2:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("Average Pseudotime", f"{results['Pseudotime (0-1)'].mean():.2f}")
+        st.metric("Assessed Records", f"{assessed_count:,}")
         st.markdown("</div>", unsafe_allow_html=True)
     with m3:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("OOD Warnings", int(ood_flags.sum()))
+        st.metric("Not Assessed / OOD", f"{ood_count:,}")
         st.markdown("</div>", unsafe_allow_html=True)
     with m4:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("Phenotypes Detected", int(results["Phenotype"].nunique()))
+        assessed_profiles = results.loc[results["Assessment Status"] == "Assessed", "Clinical Profile"].nunique()
+        st.metric("Profiles Detected", int(assessed_profiles))
         st.markdown("</div>", unsafe_allow_html=True)
+
+    if ood_count > 0:
+        st.warning(
+            "Some records were outside the training distribution. For safety, the system did not assign "
+            "a risk group, risk position, or clinical profile to those records."
+        )
 
     st.markdown("### Patient-Level Results")
     st.dataframe(results, use_container_width=True)
-
-    st.markdown("### Latent Space Interpretation")
-    col1, col2 = st.columns(2, gap="large")
-
-    with col1:
-        st.pyplot(plot_latent_by_cluster(latents, clusters), use_container_width=True)
-
-    with col2:
-        st.pyplot(plot_latent_by_pseudotime(latents, pseudotime_norm), use_container_width=True)
 
     st.markdown("### Distribution Views")
     col3, col4 = st.columns(2, gap="large")
 
     with col3:
-        st.pyplot(plot_cluster_distribution(results), use_container_width=True)
+        st.pyplot(plot_profile_distribution(results), use_container_width=True)
 
     with col4:
-        st.pyplot(plot_pseudotime_distribution(results), use_container_width=True)
+        st.pyplot(plot_risk_group_distribution(results), use_container_width=True)
 
-    st.markdown("### Detailed Interpretation")
+    st.markdown("### Summary Interpretation")
 
-    with st.expander("Cluster-Level Summary", expanded=True):
-        summary = build_cluster_summary(results)
+    with st.expander("Risk Profile Summary", expanded=True):
+        summary = build_profile_summary(results)
         st.dataframe(summary, use_container_width=True)
 
-    with st.expander("Phenotype Definitions", expanded=False):
+    with st.expander("Clinical Profile Definitions", expanded=False):
         for cid in CLUSTER_ORDER:
             info = CLUSTER_INFO[cid]
             st.markdown(
-                f"**Cluster {cid}: {info['name']}**  \n"
-                f"- Stage: {info['stage']}  \n"
-                f"- Risk: {info['risk']}  \n"
-                f"- Description: {info['summary']}  \n"
-                f"- Key features: {', '.join(info['key_features'])}"
+                f"**{info['name']}**  \n"
+                f"- Risk group: {info['risk']}  \n"
+                f"- Interpretation: {info['summary']}  \n"
+                f"- Main indicators: {', '.join(info['key_features'])}"
             )
-
-    with st.expander("Cluster Feature Profiles", expanded=False):
-        profile_means = build_cluster_feature_profiles(df_clean, clusters)
-        st.dataframe(profile_means, use_container_width=True)
-        st.download_button(
-            "Download Cluster Feature Profiles",
-            profile_means.to_csv(index=False),
-            file_name="cluster_feature_profiles.csv",
-            mime="text/csv",
-        )
 
     with st.expander("Uploaded Data Preview", expanded=False):
         st.dataframe(df_clean.head(200), use_container_width=True)
