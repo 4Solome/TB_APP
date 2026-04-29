@@ -683,6 +683,85 @@ def build_cluster_feature_profiles(df_clean, clusters):
 
 
 # ============================================================
+# MULTI-HOSPITAL COLUMN MAPPING HELPERS
+# ============================================================
+def normalize_column_name(col_name: str) -> str:
+    """
+    Standardise column names for safer automatic matching.
+    Example: "Age Census", "age-census" and "age_census" all become "agecensus".
+    """
+    return "".join(ch.lower() for ch in str(col_name).strip() if ch.isalnum())
+
+
+def guess_column_mapping(uploaded_columns, expected_columns):
+    """
+    Automatically match hospital CSV columns to the trained model schema
+    where the names are identical or very similar after normalisation.
+    """
+    normalised_uploaded = {
+        normalize_column_name(col): col for col in uploaded_columns
+    }
+
+    mapping = {}
+    for expected in expected_columns:
+        key = normalize_column_name(expected)
+        mapping[expected] = normalised_uploaded.get(key, "-- Not available --")
+
+    return mapping
+
+
+def apply_hospital_column_mapping(df_raw: pd.DataFrame, mapping: dict):
+    """
+    Convert hospital-specific CSV column names into the trained model column names.
+    Unmapped trained variables are created as missing values so that the saved
+    preprocessing pipeline can handle them consistently.
+    """
+    df_mapped = pd.DataFrame(index=df_raw.index)
+    mapped_expected_cols = []
+
+    for expected_col in ALL_COLS:
+        source_col = mapping.get(expected_col, "-- Not available --")
+        if source_col != "-- Not available --" and source_col in df_raw.columns:
+            df_mapped[expected_col] = df_raw[source_col]
+            mapped_expected_cols.append(expected_col)
+        else:
+            df_mapped[expected_col] = np.nan
+
+    missing_expected_cols = [col for col in ALL_COLS if col not in mapped_expected_cols]
+    return df_mapped, mapped_expected_cols, missing_expected_cols
+
+
+def show_mapping_quality(mapped_expected_cols, missing_expected_cols):
+    """
+    Display simple validation feedback before running the model.
+    """
+    total_expected = len(ALL_COLS)
+    mapped_count = len(mapped_expected_cols)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Expected Model Variables", total_expected)
+    c2.metric("Mapped Variables", mapped_count)
+    c3.metric("Unmapped Variables", len(missing_expected_cols))
+
+    if mapped_count == 0:
+        st.error(
+            "No uploaded CSV columns have been mapped to the trained model variables. "
+            "Please review the column mapping before analysis."
+        )
+    elif missing_expected_cols:
+        st.warning(
+            "Some trained variables were not mapped. They will be passed as missing values "
+            "and handled by the saved preprocessing pipeline. For best results, map as many "
+            "available hospital columns as possible."
+        )
+        with st.expander("View unmapped trained variables", expanded=False):
+            st.write(missing_expected_cols)
+    else:
+        st.success("All trained model variables have been mapped successfully.")
+
+
+
+# ============================================================
 # HERO SECTION (BETTER ALIGNED STREAMLIT VERSION)
 # ============================================================
 left_col, right_col = st.columns([1.6, 1], gap="large")
@@ -731,7 +810,7 @@ with right_col:
     )
 
 # ============================================================
-# UPLOAD + ANALYSIS
+# UPLOAD + ANALYSIS WITH MULTI-HOSPITAL COLUMN MAPPING
 # ============================================================
 st.markdown(
     """
@@ -740,7 +819,10 @@ st.markdown(
             <div class="section-icon">☁️</div>
             <div>
                 <div class="section-title">Upload Patient Cohort</div>
-                <div class="section-subtitle">Upload a CSV file containing TB patient records.</div>
+                <div class="section-subtitle">
+                    Upload a hospital CSV file, map its columns to the trained model schema,
+                    and run TB phenotype/risk profiling.
+                </div>
             </div>
         </div>
     """,
@@ -753,9 +835,6 @@ uploaded_file = st.file_uploader(
     label_visibility="collapsed",
 )
 
-
-analyze = st.button("Analyze Cohort", type="primary")
-
 st.markdown("</div>", unsafe_allow_html=True)
 
 results = None
@@ -765,10 +844,17 @@ pseudotime_norm = None
 clusters = None
 rec_error = None
 ood_flags = None
+analyze = False
+df_raw = None
+mapping = {}
 
-if uploaded_file and analyze:
+if uploaded_file is not None:
     try:
         df_raw = pd.read_csv(uploaded_file)
+
+        if len(df_raw) == 0:
+            st.error("The uploaded CSV file has no patient records.")
+            st.stop()
 
         if len(df_raw) > MAX_ROWS:
             st.error(
@@ -777,7 +863,115 @@ if uploaded_file and analyze:
             )
             st.stop()
 
-        df_clean, X = transform_uploaded_data(df_raw)
+        st.success(
+            f"CSV uploaded successfully: {len(df_raw):,} patient records and "
+            f"{len(df_raw.columns):,} columns detected."
+        )
+
+        with st.expander("Preview uploaded hospital CSV", expanded=False):
+            st.dataframe(df_raw.head(20), use_container_width=True)
+
+        st.markdown("### Hospital Column Mapping")
+        st.info(
+            "Map the hospital CSV columns to the variables used by the trained model. "
+            "The model itself is not retrained here; this step only renames columns internally "
+            "so different hospitals can use the same deployed system."
+        )
+
+        auto_mapping = guess_column_mapping(df_raw.columns, ALL_COLS)
+
+        mapping_mode = st.radio(
+            "Column mapping mode",
+            options=[
+                "Use automatic matching",
+                "Review and edit mapping manually",
+            ],
+            horizontal=True,
+        )
+
+        if mapping_mode == "Use automatic matching":
+            mapping = auto_mapping
+            st.caption(
+                "Automatic matching uses exact/similar column names. Choose manual review if "
+                "your hospital column names differ from the trained model variables."
+            )
+        else:
+            mapping = {}
+            available_options = ["-- Not available --"] + list(df_raw.columns)
+
+            with st.expander("Continuous variables", expanded=True):
+                for expected_col in CONTINUOUS_COLS:
+                    default_source = auto_mapping.get(expected_col, "-- Not available --")
+                    default_index = (
+                        available_options.index(default_source)
+                        if default_source in available_options
+                        else 0
+                    )
+                    mapping[expected_col] = st.selectbox(
+                        f"{expected_col}",
+                        options=available_options,
+                        index=default_index,
+                        key=f"map_cont_{expected_col}",
+                    )
+
+            with st.expander("Binary variables", expanded=False):
+                for expected_col in BINARY_COLS:
+                    default_source = auto_mapping.get(expected_col, "-- Not available --")
+                    default_index = (
+                        available_options.index(default_source)
+                        if default_source in available_options
+                        else 0
+                    )
+                    mapping[expected_col] = st.selectbox(
+                        f"{expected_col}",
+                        options=available_options,
+                        index=default_index,
+                        key=f"map_bin_{expected_col}",
+                    )
+
+            with st.expander("Categorical variables", expanded=False):
+                for expected_col in CATEGORICAL_COLS:
+                    default_source = auto_mapping.get(expected_col, "-- Not available --")
+                    default_index = (
+                        available_options.index(default_source)
+                        if default_source in available_options
+                        else 0
+                    )
+                    mapping[expected_col] = st.selectbox(
+                        f"{expected_col}",
+                        options=available_options,
+                        index=default_index,
+                        key=f"map_cat_{expected_col}",
+                    )
+
+        df_mapped_preview, mapped_expected_cols, missing_expected_cols = apply_hospital_column_mapping(
+            df_raw, mapping
+        )
+        show_mapping_quality(mapped_expected_cols, missing_expected_cols)
+
+        with st.expander("Preview internally mapped model-ready columns", expanded=False):
+            st.dataframe(df_mapped_preview.head(20), use_container_width=True)
+
+        analyze = st.button(
+            "Analyze Cohort",
+            type="primary",
+            disabled=(len(mapped_expected_cols) == 0),
+        )
+
+    except Exception as e:
+        st.error(
+            "The uploaded CSV file could not be read. Please confirm that it is a valid CSV file."
+        )
+        st.exception(e)
+        st.stop()
+
+if uploaded_file is not None and analyze:
+    try:
+        df_mapped, mapped_expected_cols, missing_expected_cols = apply_hospital_column_mapping(
+            df_raw, mapping
+        )
+
+        df_clean, X = transform_uploaded_data(df_mapped)
 
         latents = compute_latent(model, X)
         pseudotime_norm = compute_pseudotime(latents, bounds=PT_BOUNDS)
@@ -798,8 +992,8 @@ if uploaded_file and analyze:
 
     except Exception as e:
         st.error(
-            "The uploaded data could not be processed. "
-            "Please confirm the CSV structure is compatible with the trained schema."
+            "The uploaded data could not be processed after column mapping. "
+            "Please confirm that mapped columns contain values compatible with the trained schema."
         )
         st.exception(e)
         st.stop()
