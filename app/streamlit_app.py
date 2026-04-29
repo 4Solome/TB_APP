@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 import torch
 import textwrap
+from pathlib import Path
 
 from utils import (
     CONTINUOUS_COLS,
@@ -27,8 +28,8 @@ from utils import (
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="TB Risk Profiling System",
-    page_icon="📊🫁",
+    page_title="TB RiskLens",
+    page_icon="🫁",
     layout="wide",
 )
 
@@ -462,6 +463,75 @@ st.markdown(
         color: #eef2ff;
     }
 
+
+    /* ============================================================ */
+    /* LOGO / BRAND HEADER                                         */
+    /* ============================================================ */
+    .brand-card {
+        background: linear-gradient(180deg, rgba(13,20,38,0.92), rgba(8,14,28,0.96));
+        border: 1px solid rgba(114, 137, 218, 0.20);
+        border-radius: 26px;
+        padding: 1.25rem 1.35rem;
+        margin-bottom: 1.3rem;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+    }
+
+    .brand-badge {
+        display: inline-block;
+        padding: 0.38rem 0.85rem;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(45,212,191,0.22), rgba(59,130,246,0.18));
+        border: 1px solid rgba(45,212,191,0.28);
+        color: #d9fffb;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.7rem;
+    }
+
+    .brand-title {
+        font-size: 3.35rem;
+        line-height: 1.02;
+        font-weight: 900;
+        margin: 0 0 0.45rem 0;
+        letter-spacing: -0.035em;
+        color: #ffffff;
+    }
+
+    .brand-subtitle {
+        font-size: 1.18rem;
+        line-height: 1.55;
+        color: #a8b2d1;
+        max-width: 780px;
+        margin: 0;
+    }
+
+    .logo-frame {
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid rgba(45,212,191,0.22);
+        border-radius: 24px;
+        padding: 0.85rem;
+        box-shadow: 0 18px 45px rgba(0, 0, 0, 0.22);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 250px;
+    }
+
+    .logo-placeholder {
+        background: rgba(10, 16, 30, 0.62);
+        border: 1px dashed rgba(45,212,191,0.45);
+        border-radius: 24px;
+        padding: 1.2rem;
+        min-height: 250px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: #a8b2d1;
+        font-weight: 700;
+    }
+
     @media (max-width: 1100px) {
         .hero-title {
             font-size: 2.8rem;
@@ -559,6 +629,19 @@ DISPLAY_COLS = [
     "genexpert",
 ]
 
+
+
+# ============================================================
+# APP BRANDING
+# ============================================================
+# Save your logo as app/tb_risklens_logo.png in your GitHub repo.
+LOGO_CANDIDATES = [
+    Path("app/tb_risklens_logo.png"),
+    Path("tb_risklens_logo.png"),
+    Path("app/logo.png"),
+    Path("logo.png"),
+]
+LOGO_PATH = next((p for p in LOGO_CANDIDATES if p.exists()), None)
 
 # ============================================================
 # CACHED LOADERS
@@ -800,52 +883,67 @@ def show_mapping_quality(mapped_expected_cols, missing_expected_cols):
 
 
 # ============================================================
-# HERO SECTION (BETTER ALIGNED STREAMLIT VERSION)
+# HERO / BRAND SECTION
 # ============================================================
-left_col, right_col = st.columns([1.6, 1], gap="large")
+st.markdown('<div class="brand-card">', unsafe_allow_html=True)
+
+left_col, right_col = st.columns([1.55, 1], gap="large")
 
 with left_col:
-    st.markdown("### ✦ AI-POWERED")
-    st.markdown("# TB Risk Profiling System")
+    st.markdown('<div class="brand-badge">AI-POWERED TB RISK PROFILING</div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand-title">TB RiskLens</div>', unsafe_allow_html=True)
     st.markdown(
         """
-        latent tuberculosis risk sequencing and profile discovery.
-        """
+        <p class="brand-subtitle">
+        See risk. Enable early action. A Streamlit-based decision-support prototype
+        for tuberculosis risk profiling, clinical profile discovery, and safe assessment.
+        </p>
+        """,
+        unsafe_allow_html=True,
     )
 
     st.markdown("### Key Capabilities")
 
     st.markdown(
         """
-        **🛡 Privacy Preserving**  
-        Generative synthetic data without exposing real patients
+        **🫁 Clinical Risk Profiling**  
+        Identifies interpretable TB risk profiles from patient data
         """
     )
 
     st.markdown(
         """
-        **✦ Advanced AI**  
-        Latent representation learning and progression modeling
+        **🔁 Multi-Hospital Mapping**  
+        Supports hospital CSV files with different variable names
         """
     )
 
     st.markdown(
         """
-        **📊 Actionable Insights**  
-        Identify high-risk patterns and patient risk profiles
+        **🛡 Safe Assessment**  
+        Flags unfamiliar records and avoids unreliable risk assignment
         """
     )
 
 with right_col:
-    st.markdown("<div style='height: 70px;'></div>", unsafe_allow_html=True)
-    st.markdown(
-        "<div style='text-align: center; font-size: 120px;'>🫁</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<h3 style='text-align: center; margin-top: -10px;'>TB Risk Visualization</h3>",
-        unsafe_allow_html=True,
-    )
+    if LOGO_PATH is not None:
+        st.markdown('<div class="logo-frame">', unsafe_allow_html=True)
+        st.image(str(LOGO_PATH), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(
+            """
+            <div class="logo-placeholder">
+                Add your logo file as:<br>
+                <strong>app/tb_risklens_logo.png</strong><br><br>
+                The logo will appear here automatically.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+st.markdown("</div>", unsafe_allow_html=True)
+
 
 # ============================================================
 # UPLOAD + ANALYSIS WITH MULTI-HOSPITAL COLUMN MAPPING
