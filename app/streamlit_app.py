@@ -67,7 +67,7 @@ st.markdown(
         max-width: 1320px;
     }
 
-    h1, h2, h3, h4, h5, h6, p, label, div, span {
+    h1, h2, h3, h4, h5, h6, p, label, span {
         color: var(--text);
     }
 
@@ -397,6 +397,71 @@ st.markdown(
         border-color: rgba(114, 137, 218, 0.12);
     }
 
+
+    /* ============================================================ */
+    /* CLEANER PAGE SPACING AND OPTION BUTTONS                     */
+    /* ============================================================ */
+    .block-container {
+        padding-left: 2.2rem;
+        padding-right: 2.2rem;
+    }
+
+    div[role="radiogroup"] {
+        gap: 1rem !important;
+        margin-top: 0.45rem !important;
+        margin-bottom: 0.8rem !important;
+    }
+
+    div[role="radiogroup"] label {
+        background: linear-gradient(180deg, rgba(13,20,38,0.96), rgba(8,14,28,0.98)) !important;
+        border: 1px solid rgba(114, 137, 218, 0.28) !important;
+        border-radius: 16px !important;
+        padding: 0.85rem 1.1rem !important;
+        min-height: 54px !important;
+        display: flex !important;
+        align-items: center !important;
+        font-weight: 800 !important;
+        color: #eef2ff !important;
+        box-shadow: 0 8px 22px rgba(0,0,0,0.18) !important;
+    }
+
+    div[role="radiogroup"] label:hover {
+        background: rgba(124,77,255,0.20) !important;
+        border-color: rgba(124,77,255,0.45) !important;
+    }
+
+    div[role="radiogroup"] label span {
+        font-size: 1.02rem !important;
+        color: #eef2ff !important;
+    }
+
+    .stButton > button {
+        min-height: 54px !important;
+        min-width: 190px !important;
+        font-size: 1.06rem !important;
+    }
+
+    div[data-testid="stDownloadButton"] > button {
+        min-height: 52px !important;
+        min-width: 220px !important;
+        font-size: 1.02rem !important;
+    }
+
+    div[data-baseweb="select"] > div {
+        min-height: 48px !important;
+    }
+
+    .mapping-card-label {
+        background: rgba(10, 16, 30, 0.72);
+        border: 1px solid rgba(114, 137, 218, 0.20);
+        border-radius: 16px;
+        padding: 0.7rem 0.75rem;
+        margin-bottom: 0.35rem;
+        font-weight: 800;
+        font-size: 0.94rem;
+        color: #eef2ff;
+    }
+
     @media (max-width: 1100px) {
         .hero-title {
             font-size: 2.8rem;
@@ -610,7 +675,12 @@ def plot_profile_distribution(results_df):
     ordered.plot(kind="bar", ax=ax)
     ax.set_ylabel("Number of Patients", color="white")
     ax.set_title("Clinical Profile Distribution", color="white")
-    ax.tick_params(colors="white")
+    ax.tick_params(axis="x", colors="white", labelrotation=35)
+    ax.tick_params(axis="y", colors="white")
+    for label in ax.get_xticklabels():
+        label.set_color("white")
+        label.set_ha("right")
+    fig.tight_layout(pad=1.8)
     for spine in ax.spines.values():
         spine.set_color("#2a3550")
     return fig
@@ -845,15 +915,15 @@ if uploaded_file is not None:
         available_options = ["-- Not available --"] + list(df_raw.columns)
 
         schema_mode = st.radio(
-            "How are the CSV columns named?",
+            "Column setup",
             options=[
-                "CSV already uses the correct model column names",
-                "CSV uses different hospital column names",
+                "Use model names",
+                "Map hospital variables",
             ],
             horizontal=True,
         )
 
-        if schema_mode == "CSV already uses the correct model column names":
+        if schema_mode == "Use model names":
             mapping = auto_mapping
         else:
             st.caption(
@@ -877,20 +947,7 @@ if uploaded_file is not None:
                         )
 
                         st.markdown(
-                            f"""
-                            <div style="
-                                background: rgba(10, 16, 30, 0.62);
-                                border: 1px solid rgba(114, 137, 218, 0.18);
-                                border-radius: 14px;
-                                padding: 0.55rem 0.65rem;
-                                margin-bottom: 0.25rem;
-                                font-weight: 700;
-                                font-size: 0.90rem;
-                                color: #eef2ff;
-                            ">
-                                {expected_col}
-                            </div>
-                            """,
+                            f"""<div class="mapping-card-label">{expected_col}</div>""",
                             unsafe_allow_html=True,
                         )
 
@@ -911,7 +968,7 @@ if uploaded_file is not None:
             st.dataframe(df_mapped_preview[DISPLAY_COLS].head(20), use_container_width=True)
 
         analyze = st.button(
-            "Analyze Cohort",
+            "Run Analysis",
             type="primary",
             disabled=(len([col for col in DISPLAY_COLS if col in mapped_expected_cols]) == 0),
         )
@@ -996,14 +1053,8 @@ if results is not None:
     st.markdown("### Patient-Level Results")
     st.dataframe(results, use_container_width=True)
 
-    st.markdown("### Distribution Views")
-    col1, col2 = st.columns(2, gap="large")
-
-    with col1:
-        st.pyplot(plot_profile_distribution(results), use_container_width=True)
-
-    with col2:
-        st.pyplot(plot_risk_group_distribution(results), use_container_width=True)
+    st.markdown("### Distribution View")
+    st.pyplot(plot_profile_distribution(results), use_container_width=True)
 
     st.markdown("### Summary Interpretation")
 
