@@ -553,18 +553,13 @@ LATENT_DIM = 16
 ALL_COLS = CONTINUOUS_COLS + BINARY_COLS + CATEGORICAL_COLS
 
 # ============================================================
-# SELECTED USER-FACING INPUT FEATURES
+# USER-FACING DEPLOYMENT FEATURES
 # ============================================================
-# These are the only variables shown to hospitals in the mapping UI.
-# They were selected to balance TTVAE cluster-driving features,
-# pseudotime-driving features, and clinically meaningful TB indicators.
-#
-# IMPORTANT:
-# The trained model and preprocessor still expect the full training schema.
-# Therefore, the app creates the full schema internally and fills unshown
-# variables as missing values for the saved preprocessing pipeline to handle.
-SELECTED_INPUT_COLS = [
-    # Demographic / baseline risk
+# These are the 15 variables shown in the hospital mapping grid.
+# The full trained schema is still preserved internally through ALL_COLS
+# so the saved preprocessor and TTVAE model remain compatible.
+DISPLAY_COLS = [
+    # Demographic / baseline
     "age_census",
     "occupation",
 
@@ -582,18 +577,12 @@ SELECTED_INPUT_COLS = [
     "fever_d",
     "wloss_d",
 
-    # Radiology
+    # Radiology and laboratory indicators
     "xrayres",
-
-    # Laboratory indicators
     "smear_pos",
     "genexpert",
 ]
 
-# Keep only selected columns that exist in the trained schema.
-# This prevents deployment failure if a lab field name differs in the saved model schema.
-DISPLAY_COLS = [col for col in SELECTED_INPUT_COLS if col in ALL_COLS]
-UNAVAILABLE_SELECTED_COLS = [col for col in SELECTED_INPUT_COLS if col not in ALL_COLS]
 
 
 # ============================================================
@@ -835,68 +824,59 @@ def guess_column_mapping(uploaded_columns, expected_columns):
 def apply_hospital_column_mapping(df_raw: pd.DataFrame, mapping: dict):
     """
     Convert hospital-specific CSV column names into the trained model column names.
-
-    Only DISPLAY_COLS are accepted from the hospital-facing interface.
-    All other trained variables are kept in the internal schema but filled as
-    missing values so that the saved preprocessing pipeline remains compatible
-    with the original trained TTVAE model.
+    Unmapped trained variables are created as missing values so that the saved
+    preprocessing pipeline can handle them consistently.
     """
     df_mapped = pd.DataFrame(index=df_raw.index)
-    mapped_display_cols = []
+    mapped_expected_cols = []
 
     for expected_col in ALL_COLS:
         source_col = mapping.get(expected_col, "-- Not available --")
-
-        if (
-            expected_col in DISPLAY_COLS
-            and source_col != "-- Not available --"
-            and source_col in df_raw.columns
-        ):
+        if source_col != "-- Not available --" and source_col in df_raw.columns:
             df_mapped[expected_col] = df_raw[source_col]
-            mapped_display_cols.append(expected_col)
+            mapped_expected_cols.append(expected_col)
         else:
             df_mapped[expected_col] = np.nan
 
-    missing_display_cols = [col for col in DISPLAY_COLS if col not in mapped_display_cols]
-    return df_mapped, mapped_display_cols, missing_display_cols
+    missing_expected_cols = [col for col in ALL_COLS if col not in mapped_expected_cols]
+    return df_mapped, mapped_expected_cols, missing_expected_cols
 
 
-def show_mapping_quality(mapped_display_cols, missing_display_cols):
+def show_mapping_quality(mapped_expected_cols, missing_expected_cols):
     """
-    Display validation feedback for the simplified 15-feature clinical interface.
+    Display simple validation feedback before running the model.
+    Only the selected 15 deployment features are shown to users, while the
+    remaining trained variables are created internally as missing values.
     """
-    total_display = len(DISPLAY_COLS)
-    mapped_count = len(mapped_display_cols)
+    selected_mapped = [col for col in DISPLAY_COLS if col in mapped_expected_cols]
+    selected_missing = [col for col in DISPLAY_COLS if col not in mapped_expected_cols]
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Selected Input Variables", total_display)
-    c2.metric("Mapped Variables", mapped_count)
-    c3.metric("Unmapped Selected Variables", len(missing_display_cols))
+    c1.metric("Displayed Features", len(DISPLAY_COLS))
+    c2.metric("Mapped Displayed Features", len(selected_mapped))
+    c3.metric("Unmapped Displayed Features", len(selected_missing))
 
-    if UNAVAILABLE_SELECTED_COLS:
-        with st.expander("Selected features not found in trained schema", expanded=False):
-            st.warning(
-                "These requested display features were not found in the saved training schema, "
-                "so they are not shown in the mapping interface. If these are needed, confirm "
-                "the exact names used during model training."
-            )
-            st.write(UNAVAILABLE_SELECTED_COLS)
-
-    if mapped_count == 0:
+    if len(selected_mapped) == 0:
         st.error(
-            "No selected input variables have been mapped. Please map at least one hospital "
-            "column before running the analysis."
+            "No displayed clinical variables have been mapped. "
+            "Please map at least one hospital CSV column before analysis."
         )
-    elif missing_display_cols:
+    elif selected_missing:
         st.warning(
-            "Some selected variables were not mapped. They will be passed as missing values "
-            "and handled by the saved preprocessing pipeline. For best results, map all "
-            "available clinical columns."
+            "Some displayed variables were not mapped. They will be passed as missing values "
+            "and handled by the saved preprocessing pipeline."
         )
-        with st.expander("View unmapped selected variables", expanded=False):
-            st.write(missing_display_cols)
+        with st.expander("View unmapped displayed variables", expanded=False):
+            st.write(selected_missing)
     else:
-        st.success("All selected clinical/TTVAE input variables have been mapped successfully.")
+        st.success("All 15 displayed clinical variables have been mapped successfully.")
+
+    with st.expander("Technical note: full trained schema preserved internally", expanded=False):
+        st.write(
+            f"The app displays {len(DISPLAY_COLS)} selected clinical variables, but internally preserves "
+            f"the full trained schema of {len(ALL_COLS)} variables required by the saved preprocessor "
+            "and TTVAE model. Non-displayed variables are created as missing values and handled by preprocessing."
+        )
 
 
 
@@ -959,7 +939,7 @@ st.markdown(
             <div>
                 <div class="section-title">Upload Patient Cohort</div>
                 <div class="section-subtitle">
-                    Upload a hospital CSV file, map only the selected clinical/TTVAE variables,
+                    Upload a hospital CSV file, map its columns to the trained model schema,
                     and run TB phenotype/risk profiling.
                 </div>
             </div>
@@ -1010,85 +990,85 @@ if uploaded_file is not None:
         with st.expander("Preview uploaded hospital CSV", expanded=False):
             st.dataframe(df_raw.head(20), use_container_width=True)
 
-        st.markdown("### Hospital Column Mapping")
+        st.markdown("### Column Setup")
         st.info(
-            "Map the hospital CSV columns to the variables used by the trained model. "
-            "The model itself is not retrained here; this step only renames columns internally "
-            "so different hospitals can use the same deployed system."
+            "Choose whether the uploaded CSV already follows the trained model schema, "
+            "or map hospital-specific column names to the model variables. The model is not retrained; "
+            "the app only renames columns internally before analysis."
         )
 
         auto_mapping = guess_column_mapping(df_raw.columns, DISPLAY_COLS)
+        available_options = ["-- Not available --"] + list(df_raw.columns)
 
-        mapping_mode = st.radio(
-            "Column mapping mode",
+        schema_mode = st.radio(
+            "How are the CSV columns named?",
             options=[
-                "Use automatic matching",
-                "Review and edit mapping manually",
+                "CSV already uses the correct model column names",
+                "CSV uses different hospital column names",
             ],
             horizontal=True,
         )
 
-        if mapping_mode == "Use automatic matching":
+        if schema_mode == "CSV already uses the correct model column names":
             mapping = auto_mapping
             st.caption(
-                "Automatic matching uses exact/similar column names. Choose manual review if "
-                "your hospital column names differ from the trained model variables."
+                "The app will automatically use matching column names from the uploaded file. "
+                "Missing model variables will be handled by the saved preprocessing pipeline."
             )
         else:
+            st.caption(
+                "Map each trained model variable to the matching column in the hospital CSV. "
+                "The grid layout keeps the page compact and easier to present."
+            )
+
             mapping = {}
-            available_options = ["-- Not available --"] + list(df_raw.columns)
+            grid_cols_per_row = 3
 
-            with st.expander("Continuous variables", expanded=True):
-                for expected_col in CONTINUOUS_COLS:
-                    default_source = auto_mapping.get(expected_col, "-- Not available --")
-                    default_index = (
-                        available_options.index(default_source)
-                        if default_source in available_options
-                        else 0
-                    )
-                    mapping[expected_col] = st.selectbox(
-                        f"{expected_col}",
-                        options=available_options,
-                        index=default_index,
-                        key=f"map_cont_{expected_col}",
-                    )
+            for start_idx in range(0, len(DISPLAY_COLS), grid_cols_per_row):
+                row_variables = DISPLAY_COLS[start_idx:start_idx + grid_cols_per_row]
+                cols = st.columns(grid_cols_per_row, gap="medium")
 
-            with st.expander("Binary variables", expanded=False):
-                for expected_col in BINARY_COLS:
-                    default_source = auto_mapping.get(expected_col, "-- Not available --")
-                    default_index = (
-                        available_options.index(default_source)
-                        if default_source in available_options
-                        else 0
-                    )
-                    mapping[expected_col] = st.selectbox(
-                        f"{expected_col}",
-                        options=available_options,
-                        index=default_index,
-                        key=f"map_bin_{expected_col}",
-                    )
+                for i, expected_col in enumerate(row_variables):
+                    with cols[i]:
+                        default_source = auto_mapping.get(expected_col, "-- Not available --")
+                        default_index = (
+                            available_options.index(default_source)
+                            if default_source in available_options
+                            else 0
+                        )
 
-            with st.expander("Categorical variables", expanded=False):
-                for expected_col in CATEGORICAL_COLS:
-                    default_source = auto_mapping.get(expected_col, "-- Not available --")
-                    default_index = (
-                        available_options.index(default_source)
-                        if default_source in available_options
-                        else 0
-                    )
-                    mapping[expected_col] = st.selectbox(
-                        f"{expected_col}",
-                        options=available_options,
-                        index=default_index,
-                        key=f"map_cat_{expected_col}",
-                    )
+                        st.markdown(
+                            f"""
+                            <div style="
+                                background: rgba(10, 16, 30, 0.62);
+                                border: 1px solid rgba(114, 137, 218, 0.18);
+                                border-radius: 14px;
+                                padding: 0.55rem 0.65rem;
+                                margin-bottom: 0.25rem;
+                                font-weight: 700;
+                                font-size: 0.90rem;
+                                color: #eef2ff;
+                            ">
+                                {expected_col}
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                        mapping[expected_col] = st.selectbox(
+                            label=f"Select hospital column for {expected_col}",
+                            options=available_options,
+                            index=default_index,
+                            key=f"map_grid_{expected_col}",
+                            label_visibility="collapsed",
+                        )
 
         df_mapped_preview, mapped_expected_cols, missing_expected_cols = apply_hospital_column_mapping(
             df_raw, mapping
         )
         show_mapping_quality(mapped_expected_cols, missing_expected_cols)
 
-        with st.expander("Preview internally mapped selected variables and full model schema", expanded=False):
+        with st.expander("Preview internally mapped model-ready columns", expanded=False):
             st.dataframe(df_mapped_preview.head(20), use_container_width=True)
 
         analyze = st.button(
