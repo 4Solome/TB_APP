@@ -806,10 +806,10 @@ left_col, right_col = st.columns([1.6, 1], gap="large")
 
 with left_col:
     st.markdown("### ✦ AI-POWERED")
-    st.markdown("# TB Risk Profiling System")
+    st.markdown("# TB RiskLens")
     st.markdown(
         """
-        latent tuberculosis risk sequencing and profile discovery.
+        TB risk profiling and early risk identification..
         """
     )
 
