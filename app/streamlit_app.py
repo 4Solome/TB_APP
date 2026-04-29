@@ -950,78 +950,78 @@ if uploaded_file is not None:
         with st.expander("Preview uploaded hospital CSV", expanded=False):
             st.dataframe(df_raw.head(20), use_container_width=True)
 
-        st.markdown("### Hospital Column Mapping")
+        st.markdown("### Column Setup")
         st.info(
-            "Map the hospital CSV columns to the variables used by the trained model. "
-            "The model itself is not retrained here; this step only renames columns internally "
-            "so different hospitals can use the same deployed system."
+            "Choose whether the uploaded CSV already follows the trained model schema, "
+            "or map hospital-specific column names to the model variables. The model is not retrained; "
+            "the app only renames columns internally before analysis."
         )
 
         auto_mapping = guess_column_mapping(df_raw.columns, ALL_COLS)
+        available_options = ["-- Not available --"] + list(df_raw.columns)
 
-        mapping_mode = st.radio(
-            "Column mapping mode",
+        schema_mode = st.radio(
+            "How are the CSV columns named?",
             options=[
-                "Use automatic matching",
-                "Review and edit mapping manually",
+                "CSV already uses the correct model column names",
+                "CSV uses different hospital column names",
             ],
             horizontal=True,
         )
 
-        if mapping_mode == "Use automatic matching":
+        if schema_mode == "CSV already uses the correct model column names":
             mapping = auto_mapping
             st.caption(
-                "Automatic matching uses exact/similar column names. Choose manual review if "
-                "your hospital column names differ from the trained model variables."
+                "The app will automatically use matching column names from the uploaded file. "
+                "Missing model variables will be handled by the saved preprocessing pipeline."
             )
         else:
+            st.caption(
+                "Map each trained model variable to the matching column in the hospital CSV. "
+                "The grid layout keeps the page compact and easier to present."
+            )
+
             mapping = {}
-            available_options = ["-- Not available --"] + list(df_raw.columns)
+            grid_cols_per_row = 3
 
-            with st.expander("Continuous variables", expanded=True):
-                for expected_col in CONTINUOUS_COLS:
-                    default_source = auto_mapping.get(expected_col, "-- Not available --")
-                    default_index = (
-                        available_options.index(default_source)
-                        if default_source in available_options
-                        else 0
-                    )
-                    mapping[expected_col] = st.selectbox(
-                        f"{expected_col}",
-                        options=available_options,
-                        index=default_index,
-                        key=f"map_cont_{expected_col}",
-                    )
+            for start_idx in range(0, len(ALL_COLS), grid_cols_per_row):
+                row_variables = ALL_COLS[start_idx:start_idx + grid_cols_per_row]
+                cols = st.columns(grid_cols_per_row, gap="medium")
 
-            with st.expander("Binary variables", expanded=False):
-                for expected_col in BINARY_COLS:
-                    default_source = auto_mapping.get(expected_col, "-- Not available --")
-                    default_index = (
-                        available_options.index(default_source)
-                        if default_source in available_options
-                        else 0
-                    )
-                    mapping[expected_col] = st.selectbox(
-                        f"{expected_col}",
-                        options=available_options,
-                        index=default_index,
-                        key=f"map_bin_{expected_col}",
-                    )
+                for i, expected_col in enumerate(row_variables):
+                    with cols[i]:
+                        default_source = auto_mapping.get(expected_col, "-- Not available --")
+                        default_index = (
+                            available_options.index(default_source)
+                            if default_source in available_options
+                            else 0
+                        )
 
-            with st.expander("Categorical variables", expanded=False):
-                for expected_col in CATEGORICAL_COLS:
-                    default_source = auto_mapping.get(expected_col, "-- Not available --")
-                    default_index = (
-                        available_options.index(default_source)
-                        if default_source in available_options
-                        else 0
-                    )
-                    mapping[expected_col] = st.selectbox(
-                        f"{expected_col}",
-                        options=available_options,
-                        index=default_index,
-                        key=f"map_cat_{expected_col}",
-                    )
+                        st.markdown(
+                            f"""
+                            <div style="
+                                background: rgba(10, 16, 30, 0.62);
+                                border: 1px solid rgba(114, 137, 218, 0.18);
+                                border-radius: 14px;
+                                padding: 0.55rem 0.65rem;
+                                margin-bottom: 0.25rem;
+                                font-weight: 700;
+                                font-size: 0.90rem;
+                                color: #eef2ff;
+                            ">
+                                {expected_col}
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                        mapping[expected_col] = st.selectbox(
+                            label=f"Select hospital column for {expected_col}",
+                            options=available_options,
+                            index=default_index,
+                            key=f"map_grid_{expected_col}",
+                            label_visibility="collapsed",
+                        )
 
         df_mapped_preview, mapped_expected_cols, missing_expected_cols = apply_hospital_column_mapping(
             df_raw, mapping
