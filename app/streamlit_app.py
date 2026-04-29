@@ -67,7 +67,8 @@ st.markdown(
         max-width: 1320px;
     }
 
-    h1, h2, h3, h4, h5, h6, p, label, div, span {
+    /* Safe text color: avoid styling every Streamlit internal div */
+    h1, h2, h3, h4, h5, h6, p, label, span {
         color: var(--text);
     }
 
@@ -395,6 +396,84 @@ st.markdown(
 
     hr {
         border-color: rgba(114, 137, 218, 0.12);
+    }
+
+
+
+    /* ============================================================ */
+    /* STREAMLIT SELECTBOX / DROPDOWN FIX FOR DARK THEME             */
+    /* ============================================================ */
+    div[data-baseweb="select"] > div {
+        background-color: #071121 !important;
+        border: 1px solid rgba(114, 137, 218, 0.35) !important;
+        border-radius: 12px !important;
+        color: #ffffff !important;
+    }
+
+    div[data-baseweb="select"] input {
+        color: #ffffff !important;
+    }
+
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] div {
+        color: #ffffff !important;
+    }
+
+    div[data-baseweb="select"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
+    }
+
+    div[data-baseweb="popover"] {
+        background-color: #0b1324 !important;
+        color: #ffffff !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(114, 137, 218, 0.35) !important;
+        box-shadow: 0 16px 40px rgba(0,0,0,0.35) !important;
+        overflow: hidden !important;
+    }
+
+    div[data-baseweb="menu"] {
+        background-color: #0b1324 !important;
+        color: #ffffff !important;
+        border-radius: 12px !important;
+    }
+
+    div[data-baseweb="menu"] ul {
+        background-color: #0b1324 !important;
+    }
+
+    div[data-baseweb="menu"] li,
+    div[role="option"] {
+        background-color: #0b1324 !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-baseweb="menu"] li:hover,
+    div[role="option"]:hover {
+        background-color: rgba(124,77,255,0.35) !important;
+        color: #ffffff !important;
+    }
+
+    div[role="option"][aria-selected="true"] {
+        background-color: rgba(45,212,191,0.25) !important;
+        color: #ffffff !important;
+    }
+
+    div[data-baseweb="select"] div[aria-disabled="true"],
+    div[data-baseweb="menu"] div[aria-disabled="true"] {
+        color: #cbd5e1 !important;
+        opacity: 1 !important;
+    }
+
+    div[role="radiogroup"] label,
+    div[role="radiogroup"] span {
+        color: #eef2ff !important;
+    }
+
+    div[data-testid="stAlert"] * {
+        color: inherit !important;
     }
 
     @media (max-width: 1100px) {
